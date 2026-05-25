@@ -28,6 +28,11 @@ def load_data():
         asset = pd.read_csv('Asset school list.csv')
         ms_math = pd.read_csv('Mindspark math.csv')
         ms_eng = pd.read_csv('mindspark english.csv')
+        
+        # MISSING FEATURES ADDED: Detailed Feedback, Early Delivery, and Org Hierarchy
+        det_feedback = pd.read_csv('detailed feedback.csv') if os.path.exists('detailed feedback.csv') else pd.DataFrame()
+        cares_early = pd.read_csv('cares earlydelivery.csv') if os.path.exists('cares earlydelivery.csv') else pd.DataFrame()
+        org_data = pd.read_csv('Supporting data(2)-13th March 2026 (8).xlsx - Org.csv') if os.path.exists('Supporting data(2)-13th March 2026 (8).xlsx - Org.csv') else pd.DataFrame()
     except Exception as e:
         st.error(f"Error loading Operational CSVs. Details: {e}")
         st.stop()
@@ -42,9 +47,10 @@ def load_data():
     fin_2027 = load_smart_csv('Supporting data(2)-13th March 2026 (8)_2027.csv', 'Supporting data(2)-13th March 2026 (8).xlsx - 2027.csv')
     drop_risk = load_smart_csv('Supporting data(2)-13th March 2026 (8)_Drop & Risk Analysis.csv', 'Supporting data(2)-13th March 2026 (8).xlsx - Drop & Risk Analysis.csv')
         
-    for df in [fin_2025, fin_2027, drop_risk]:
+    for df in [fin_2025, fin_2027, drop_risk, det_feedback]:
         if 'ACAD Name' in df.columns: df.rename(columns={'ACAD Name': 'ACAD'}, inplace=True)
         if 'CRM Acad Consultant' in df.columns and 'ACAD' not in df.columns: df.rename(columns={'CRM Acad Consultant': 'ACAD'}, inplace=True)
+        if 'Facilitator' in df.columns and 'ACAD' not in df.columns: df.rename(columns={'Facilitator': 'ACAD'}, inplace=True)
             
     if 'School No' in fin_2025.columns: fin_2025['School No'] = fin_2025['School No'].astype(str).str.strip().str.replace('.0', '', regex=False)
     if 'School No' in fin_2027.columns: fin_2027['School No'] = fin_2027['School No'].astype(str).str.strip().str.replace('.0', '', regex=False)
@@ -56,17 +62,28 @@ def load_data():
     onboarding['% Coverage'] = pd.to_numeric(onboarding['% Coverage'].replace({'Unknown': '0'}), errors='coerce').fillna(0)
     ms_math['Login %'] = pd.to_numeric(ms_math['Login %'], errors='coerce').fillna(0)
     
-    return acad_cal, det_acad_cal, kdm, det_kdm, onboarding, det_onboard, crm, feedback, cares_schools, asset, ms_math, fin_2025, fin_2027, drop_risk
+    # MISSING FEATURE ADDED: CRM Update SLA Calculation (<48h)
+    if not det_acad_cal.empty and 'Session Date' in det_acad_cal.columns and 'Date Updated' in det_acad_cal.columns:
+        det_acad_cal['Session Date'] = pd.to_datetime(det_acad_cal['Session Date'], errors='coerce')
+        det_acad_cal['Date Updated'] = pd.to_datetime(det_acad_cal['Date Updated'], errors='coerce')
+        det_acad_cal['Log_Delay_Hours'] = (det_acad_cal['Date Updated'] - det_acad_cal['Session Date']).dt.total_seconds() / 3600
+    else:
+        det_acad_cal['Log_Delay_Hours'] = 0
+    
+    return acad_cal, det_acad_cal, kdm, det_kdm, onboarding, det_onboard, crm, feedback, cares_schools, asset, ms_math, fin_2025, fin_2027, drop_risk, det_feedback, cares_early, org_data
 
-acad_cal, det_acad_cal, kdm, det_kdm, onboarding, det_onboard, crm, feedback, cares_schools, asset, ms_math, fin_2025, fin_2027, drop_risk = load_data()
+acad_cal, det_acad_cal, kdm, det_kdm, onboarding, det_onboard, crm, feedback, cares_schools, asset, ms_math, fin_2025, fin_2027, drop_risk, det_feedback, cares_early, org_data = load_data()
 
-all_acads = pd.concat([acad_cal['ACAD'], crm['ACAD'], feedback['ACAD']]).dropna().unique()
-all_acads = sorted([str(x) for x in all_acads if str(x) not in ["Unknown", "nan"]])
+# FIX: Added fin_2025 to base_acads to ensure ALL ACADs are tracked (Restores full 645 school count)
+base_acads = pd.concat([acad_cal['ACAD'], crm['ACAD'], feedback['ACAD'], fin_2025['ACAD']]).dropna().unique()
+base_acads = sorted([str(x) for x in base_acads if str(x) not in ["Unknown", "nan"]])
 
-# Strict Retention Logic (2025 -> 2027)
+# Strict Retention Logic WITH Winter Round Exemption
 if not fin_2025.empty and not fin_2027.empty and 'School No' in fin_2025.columns:
     schools_2027_list = fin_2027['School No'].dropna().unique().tolist()
-    fin_2025['Is_Retained'] = fin_2025['School No'].isin(schools_2027_list)
+    fin_2025['Is_Retained'] = fin_2025.apply(
+        lambda row: True if row['School No'] in schools_2027_list or 'Winter' in str(row.get('ASSETRound', '')) else False, axis=1
+    )
 else:
     if not fin_2025.empty: fin_2025['Is_Retained'] = False
 
@@ -76,11 +93,23 @@ def highlight_cares(row): return style_ni(row, row.get('KRA Category', '') == 'N
 def highlight_ms(row): return style_ni(row, row.get('Login %', 100) < 80)
 def highlight_asset(row): return style_ni(row, row.get('Overall Score (%)', 100) < 100 and row.get('Included in Calculation', 'No') == 'Yes')
 def highlight_kdm(row): return style_ni(row, row.get('% Coverage', 100) < 25)
+def highlight_sla(row): return style_ni(row, row.get('Log_Delay_Hours', 0) > 48)
 
 # ==========================================
 # 2. SIDEBAR & MASTER EXPORT GENERATOR
 # ==========================================
-st.sidebar.title("Navigation")
+st.sidebar.title("Navigation & Filters")
+
+# MISSING FEATURE ADDED: Global Zone Filter
+available_zones = ["All Zones"] + sorted(fin_2025['Zone'].dropna().unique().tolist()) if not fin_2025.empty and 'Zone' in fin_2025.columns else ["All Zones"]
+selected_zone = st.sidebar.selectbox("🌍 Filter by Zone:", available_zones)
+
+if selected_zone != "All Zones" and not fin_2025.empty:
+    valid_acads = fin_2025[fin_2025['Zone'] == selected_zone]['ACAD'].dropna().unique().tolist()
+    all_acads = sorted([a for a in base_acads if a in valid_acads])
+else:
+    all_acads = base_acads
+
 page = st.sidebar.radio("Select Dashboard View:", [
     "🏢 Dept 11-Point Scorecard", 
     "💰 Goal 1: Retention & Revenue", 
@@ -121,12 +150,12 @@ def generate_individual_goal_sheet(acad_name, metrics):
         "ACTUAL ACHIEVED (Data)": [
             f"{metrics['retention_rate']:.1f}% Retained | ₹{metrics['retained_rev']:,.0f}",
             "N/A", "N/A",
-            f"Avg Rating: {metrics['fb']:.2f}/10 | Total CRM: {metrics['crm_total']}",
+            f"Avg Rating: {metrics['fb']:.2f}/10 | {metrics['sla_48']:.1f}% logged <48h",
             f"{metrics['kdm']:.1f}% Coverage",
             f"{metrics['onboarding']:.1f}% Coverage",
             f"{metrics['acad_cal']:.1f}% Compliant",
             "N/A",
-            f"CARES: {metrics['cares']:.1f}% | MS: {metrics['ms']:.1f}% | ASSET: {metrics['asset']:.1f}%",
+            f"CARES: {metrics['cares']:.1f}% (Early Reqs: {metrics['early_reqs']}) | MS: {metrics['ms']:.1f}% | ASSET: {metrics['asset']:.1f}%",
             "Pending HR Eval", "Pending HR Eval"
         ]
     })
@@ -147,11 +176,14 @@ def convert_acad_to_excel(acad_name, metrics, raw_dfs):
 # 3. PAGE: DEPT 11-POINT SCORECARD
 # ==========================================
 if page == "🏢 Dept 11-Point Scorecard":
-    st.title("🏢 Department 11-Point Scorecard & Master Table")
+    st.title(f"🏢 Department 11-Point Scorecard ({selected_zone})")
     st.markdown("**Metric Definitions:** Explicitly listing totals, averages, and the exact metric logic used.")
     
     total_acads = len(all_acads)
-    total_2025_schools_dept = fin_2025['School No'].nunique() if not fin_2025.empty else 0
+    
+    # FIX: Use len(fin_2025) to properly count ALL allocated school rows (Restores 645 count)
+    dept_fin = fin_2025[fin_2025['ACAD'].isin(all_acads)] if not fin_2025.empty else pd.DataFrame()
+    total_2025_schools_dept = len(dept_fin) if not dept_fin.empty else 0
     
     s1, s2, s3, s4 = st.columns(4)
     fb_val = feedback['Overall Rating'].mean() if not feedback.empty else 0
@@ -173,6 +205,25 @@ if page == "🏢 Dept 11-Point Scorecard":
 
     st.divider()
     
+    # MISSING FEATURE ADDED: Dept-Wide Zero Utilization with COUNTS
+    st.subheader("🚨 Metrics 10 & 11: Department-Wide Zero Utilization (Remedy Required)")
+    zero_cares_dept = cares_schools[cares_schools['Utilization (%)'] == 0]
+    zero_ms_dept = ms_math[ms_math['Login %'] == 0]
+    zero_asset_dept = asset[asset['Overall Score (%)'] == 0]
+    
+    r1, r2, r3 = st.columns(3)
+    with r1:
+        st.error(f"**10. CARES (0% Util)**: {len(zero_cares_dept)} Schools")
+        st.dataframe(zero_cares_dept[['ACAD', 'School Name', 'Utilization (%)']], hide_index=True)
+    with r2:
+        st.error(f"**10. MS Math (0% Logins)**: {len(zero_ms_dept)} Schools")
+        st.dataframe(zero_ms_dept[['ACAD', 'schoolName', 'Login %']], hide_index=True)
+    with r3:
+        st.error(f"**11. ASSET (0% Score)**: {len(zero_asset_dept)} Schools")
+        st.dataframe(zero_asset_dept[['ACAD', 'School Name', 'Overall Score (%)']], hide_index=True)
+
+    st.divider()
+
     # Fully Restored Master Summary Table
     st.subheader("📊 Consolidated ACAD Master Performance Table")
     master_summary = pd.DataFrame({'ACAD': all_acads})
@@ -189,7 +240,8 @@ if page == "🏢 Dept 11-Point Scorecard":
     if not asset.empty: master_summary = master_summary.merge(asset.groupby('ACAD')['Overall Score (%)'].mean().reset_index().rename(columns={'Overall Score (%)': 'ASSET %'}), on='ACAD', how='left')
     
     if not fin_2025.empty:
-        base_agg = fin_2025.groupby('ACAD')['School No'].nunique().reset_index().rename(columns={'School No': 'Total 2025 Schools'})
+        # Count allocated school rows
+        base_agg = fin_2025.groupby('ACAD').size().reset_index(name='Total 2025 Schools')
         master_summary = master_summary.merge(base_agg, on='ACAD', how='left')
 
     master_summary.fillna(0, inplace=True)
@@ -203,24 +255,28 @@ if page == "🏢 Dept 11-Point Scorecard":
         st.markdown("**Feedback Data**"); st.dataframe(feedback, use_container_width=True)
         st.markdown("**ASSET Data**"); st.dataframe(asset, use_container_width=True)
         st.markdown("**Detailed Academic Calendar**"); st.dataframe(det_acad_cal, use_container_width=True)
+        if not org_data.empty: st.markdown("**Organizational Hierarchy**"); st.dataframe(org_data, use_container_width=True)
 
 
 # ==========================================
 # 4. PAGE: RETENTION & REVENUE (GOAL 1)
 # ==========================================
 elif page == "💰 Goal 1: Retention & Revenue":
-    st.title("💰 Goal 1: Retention & Revenue")
+    st.title(f"💰 Goal 1: Retention & Revenue ({selected_zone})")
     
-    if not fin_2025.empty and 'ACAD' in fin_2025.columns:
+    dept_fin = fin_2025[fin_2025['ACAD'].isin(all_acads)] if not fin_2025.empty else pd.DataFrame()
+    
+    if not dept_fin.empty and 'ACAD' in dept_fin.columns:
         summary_data = []
-        fin_2025['Total Order Value (Exclusive GST)'] = pd.to_numeric(fin_2025.get('Total Order Value (Exclusive GST)', 0), errors='coerce').fillna(0)
+        dept_fin['Total Order Value (Exclusive GST)'] = pd.to_numeric(dept_fin.get('Total Order Value (Exclusive GST)', 0), errors='coerce').fillna(0)
         if not fin_2027.empty: fin_2027['Total Order Value (Exclusive GST)'] = pd.to_numeric(fin_2027.get('Total Order Value (Exclusive GST)', 0), errors='coerce').fillna(0)
         
-        for acad in fin_2025['ACAD'].dropna().unique():
-            acad_2025 = fin_2025[fin_2025['ACAD'] == acad]
-            allocated = acad_2025['School No'].nunique()
+        for acad in dept_fin['ACAD'].dropna().unique():
+            acad_2025 = dept_fin[dept_fin['ACAD'] == acad]
+            # FIX: Use length for allocations
+            allocated = len(acad_2025)
+            retained = acad_2025['Is_Retained'].sum()
             retained_schools = acad_2025[acad_2025['Is_Retained']]['School No'].unique()
-            retained = len(retained_schools)
             
             base_rev = acad_2025['Total Order Value (Exclusive GST)'].sum()
             lost_rev = acad_2025[~acad_2025['Is_Retained']]['Total Order Value (Exclusive GST)'].sum()
@@ -256,13 +312,19 @@ elif page == "👤 Individual Dashboard & Goal Export":
     det_kdm_ind = det_kdm[det_kdm['School Name'].isin(kdm_ind['School Name'])] if 'School Name' in kdm_ind.columns else pd.DataFrame()
     det_onb_ind = det_onboard[det_onboard['ACAD'] == selected_acad]
     
+    det_fb_ind = det_feedback[det_feedback['ACAD'] == selected_acad] if not det_feedback.empty else pd.DataFrame()
+    cares_early_ind = cares_early[cares_early['ACAD'] == selected_acad] if not cares_early.empty else pd.DataFrame()
+    
     # Calculate Core Metrics for Goal Sheet
-    allocated_25 = fin_2025_ind['School No'].nunique() if not fin_2025_ind.empty else 0
+    allocated_25 = len(fin_2025_ind) if not fin_2025_ind.empty else 0
     retained_27 = fin_2025_ind['Is_Retained'].sum() if not fin_2025_ind.empty else 0
     retained_rev_amt = 0
     if not fin_2025_ind.empty and not fin_2027.empty:
         ret_schools = fin_2025_ind[fin_2025_ind['Is_Retained']]['School No'].unique()
         retained_rev_amt = fin_2027[fin_2027['School No'].isin(ret_schools)]['Total Order Value (Exclusive GST)'].sum()
+        
+    early_requests = cares_early_ind['Total Requests'].sum() if not cares_early_ind.empty else 0
+    pct_logged_48h = (len(det_acad_ind[det_acad_ind['Log_Delay_Hours'] <= 48]) / len(det_acad_ind) * 100) if not det_acad_ind.empty and len(det_acad_ind) > 0 else 0
         
     calc_metrics = {
         'fb': fb_ind['Overall Rating'].values[0] if not fb_ind.empty else 0,
@@ -274,11 +336,13 @@ elif page == "👤 Individual Dashboard & Goal Export":
         'ms': ms_math_ind['Login %'].mean() if not ms_math_ind.empty else 0,
         'asset': asset_ind['Overall Score (%)'].mean() if not asset_ind.empty else 0,
         'retention_rate': (retained_27 / allocated_25 * 100) if allocated_25 > 0 else 0,
-        'retained_rev': retained_rev_amt
+        'retained_rev': retained_rev_amt,
+        'early_reqs': early_requests,
+        'sla_48': pct_logged_48h
     }
 
     # Include ALL raw data for the individual export
-    raw_export_dfs = {'Feedback': fb_ind, 'CRM': crm_ind, 'KDM': kdm_ind, 'CARES': cares_ind, 'ASSET': asset_ind, 'MS_Math': ms_math_ind, 'Onboarding': onboard_ind, 'Acad_Cal': acad_cal_ind, '2025_Fin': fin_2025_ind}
+    raw_export_dfs = {'Feedback': fb_ind, 'Qual_Feedback': det_fb_ind, 'CRM': crm_ind, 'KDM': kdm_ind, 'CARES': cares_ind, 'ASSET': asset_ind, 'MS_Math': ms_math_ind, 'Onboarding': onboard_ind, 'Acad_Cal': acad_cal_ind, '2025_Fin': fin_2025_ind}
     st.download_button(f"📥 Download {selected_acad} KPA Goal Sheet & Data", convert_acad_to_excel(selected_acad, calc_metrics, raw_export_dfs), f"KPA_2026_{selected_acad}.xlsx", type="primary")
 
     st.divider()
@@ -296,6 +360,44 @@ elif page == "👤 Individual Dashboard & Goal Export":
     s6.metric("4. Onboarding %", f"{calc_metrics['onboarding']:.1f}%", delta_color="off")
     s7.metric("5. Acad Calendar %", f"{calc_metrics['acad_cal']:.1f}%", delta_color="off")
     s8.metric("2. CARES Util %", f"{calc_metrics['cares']:.1f}%", delta_color="off")
+
+    st.divider()
+    
+    # MISSING FEATURE ADDED: Individual Zero Utilization Section with COUNTS
+    st.subheader("🚨 Metrics 10 & 11: Zero Utilization (Immediate Remedy)")
+    zero_cares_ind = cares_ind[cares_ind['Utilization (%)'] == 0]
+    zero_ms_ind = ms_math_ind[ms_math_ind['Login %'] == 0]
+    zero_asset_ind = asset_ind[asset_ind['Overall Score (%)'] == 0]
+    
+    r1, r2, r3 = st.columns(3)
+    with r1:
+        st.error(f"**10. CARES (0% Util)**: {len(zero_cares_ind)} Schools")
+        st.dataframe(zero_cares_ind[['School Name', 'Utilization (%)']], hide_index=True)
+    with r2:
+        st.error(f"**10. MS Math (0% Logins)**: {len(zero_ms_ind)} Schools")
+        st.dataframe(zero_ms_ind[['schoolName', 'Login %']], hide_index=True)
+    with r3:
+        st.error(f"**11. ASSET (0% Scheduled)**: {len(zero_asset_ind)} Schools")
+        st.dataframe(zero_asset_ind[['School Name', 'Overall Score (%)']], hide_index=True)
+
+    st.divider()
+    
+    # MISSING FEATURE ADDED: Qualitative Feedback and Goal 2/3 SLAs
+    st.header("📝 Qualitative Session Feedback & Goal Analytics")
+    c_col1, c_col2 = st.columns(2)
+    with c_col1:
+        st.markdown("**Goal 2: CRM Update SLA (<48 hours)**")
+        st.metric("% Logged within 48h", f"{pct_logged_48h:.1f}%")
+        if not det_acad_ind.empty: st.dataframe(det_acad_ind[['School Name', 'Session Date', 'Date Updated', 'Log_Delay_Hours']].style.apply(highlight_sla, axis=1), hide_index=True)
+        
+    with c_col2:
+        st.markdown("**Goal 3: CARES Early Delivery Penalty**")
+        st.metric("Total Early Delivery Requests", early_requests, "Penalty triggered if > 4")
+        if early_requests > 4: st.error("Penalty Triggered: Early delivery requests exceed baseline target.")
+    
+    if not det_fb_ind.empty:
+        st.markdown("**Raw Qualitative Teacher Takeaways**")
+        st.dataframe(det_fb_ind[['School Name', 'Products', 'NPS Rating (1-10)', 'Takeaways', 'Suggestions']], use_container_width=True, hide_index=True)
 
     st.divider()
     st.header("🔍 Granular Raw Data Tables (Red = Needs Improvement)")
