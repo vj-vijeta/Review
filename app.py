@@ -32,12 +32,12 @@ def load_data():
         ms_math = pd.read_csv('Mindspark math.csv')
         ms_eng = pd.read_csv('mindspark english.csv')
         
-        # MISSING FEATURES ADDED: Detailed Feedback, Early Delivery, and Org Hierarchy
+        # Detailed Feedback, Early Delivery, and Org Hierarchy
         det_feedback = pd.read_csv('detailed feedback.csv') if os.path.exists('detailed feedback.csv') else pd.DataFrame()
         cares_early = pd.read_csv('cares earlydelivery.csv') if os.path.exists('cares earlydelivery.csv') else pd.DataFrame()
         org_data = pd.read_csv('Supporting data(2)-13th March 2026 (8).xlsx - Org.csv') if os.path.exists('Supporting data(2)-13th March 2026 (8).xlsx - Org.csv') else pd.DataFrame()
         
-        # NEW FEATURE: Detailed CRM / MOM Data
+        # Detailed CRM / MOM Data
         det_crm = pd.read_csv('Untitled spreadsheet - Sheet1.csv') if os.path.exists('Untitled spreadsheet - Sheet1.csv') else pd.DataFrame()
         
     except Exception as e:
@@ -70,7 +70,7 @@ def load_data():
     onboarding['% Coverage'] = pd.to_numeric(onboarding['% Coverage'].replace({'Unknown': '0'}), errors='coerce').fillna(0)
     ms_math['Login %'] = pd.to_numeric(ms_math['Login %'], errors='coerce').fillna(0)
     
-    # MISSING FEATURE ADDED: CRM Update SLA Calculation (<48h)
+    # CRM Update SLA Calculation (<48h)
     if not det_acad_cal.empty and 'Session Date' in det_acad_cal.columns and 'Date Updated' in det_acad_cal.columns:
         det_acad_cal['Session Date'] = pd.to_datetime(det_acad_cal['Session Date'], errors='coerce')
         det_acad_cal['Date Updated'] = pd.to_datetime(det_acad_cal['Date Updated'], errors='coerce')
@@ -78,7 +78,7 @@ def load_data():
     else:
         det_acad_cal['Log_Delay_Hours'] = 0
         
-    # NEW FEATURE: Calculate MOM Word Count
+    # Calculate MOM Word Count
     if not det_crm.empty and 'Description' in det_crm.columns:
         det_crm['MOM_Word_Count'] = det_crm['Description'].astype(str).apply(lambda x: len(x.split()) if str(x).lower() != 'nan' else 0)
     
@@ -86,7 +86,7 @@ def load_data():
 
 acad_cal, det_acad_cal, kdm, det_kdm, onboarding, det_onboard, crm, feedback, cares_schools, asset, ms_math, fin_2025, fin_2027, drop_risk, det_feedback, cares_early, org_data, det_crm = load_data()
 
-# FIX: Added fin_2025 to base_acads to ensure ALL ACADs are tracked (Restores full 645 school count)
+# Ensure ALL ACADs are tracked (Restores full 645 school count)
 base_acads = pd.concat([acad_cal['ACAD'], crm['ACAD'], feedback['ACAD'], fin_2025['ACAD']]).dropna().unique()
 base_acads = sorted([str(x) for x in base_acads if str(x) not in ["Unknown", "nan"]])
 
@@ -112,7 +112,7 @@ def highlight_sla(row): return style_ni(row, row.get('Log_Delay_Hours', 0) > 48)
 # ==========================================
 st.sidebar.title("Navigation & Filters")
 
-# MISSING FEATURE ADDED: Global Zone Filter
+# Global Zone Filter
 available_zones = ["All Zones"] + sorted(fin_2025['Zone'].dropna().unique().tolist()) if not fin_2025.empty and 'Zone' in fin_2025.columns else ["All Zones"]
 selected_zone = st.sidebar.selectbox("🌍 Filter by Zone:", available_zones)
 
@@ -200,7 +200,7 @@ if page == "🏢 Dept 11-Point Scorecard":
     
     total_acads = len(all_acads)
     
-    # FIX: Use len(fin_2025) to properly count ALL allocated school rows (Restores 645 count)
+    # Use len(fin_2025) to properly count ALL allocated school rows
     dept_fin = fin_2025[fin_2025['ACAD'].isin(all_acads)] if not fin_2025.empty else pd.DataFrame()
     total_2025_schools_dept = len(dept_fin) if not dept_fin.empty else 0
     
@@ -210,7 +210,7 @@ if page == "🏢 Dept 11-Point Scorecard":
     s2.metric("9. Avg Session (NPS)", f"{crm['Average Rating'].mean() if not crm.empty else 0:.2f} / 5", "Metric: Avg CRM rating", delta_color="off")
     s3.metric("7. Total Schools", total_2025_schools_dept, "Metric: Base 2025 Allocation", delta_color="off")
     
-    # NEW DYNAMIC MEETING TARGET (Schools x 4)
+    # DYNAMIC MEETING TARGET (Schools x 4)
     tot_meetings = crm['Meetings'].sum() if not crm.empty else 0
     avg_meetings = tot_meetings / total_acads if total_acads > 0 else 0
     target_meetings_dept = total_2025_schools_dept * 4
@@ -227,29 +227,43 @@ if page == "🏢 Dept 11-Point Scorecard":
 
     st.divider()
     
-    # NEW FEATURE: MOM Word Count Analysis (Department View)
+    # MOM Word Count Analysis (Department View)
     st.subheader("📝 MOM (Minutes of Meeting) Word Count Analysis")
     if not det_crm.empty and 'MOM_Word_Count' in det_crm.columns:
         dept_det_crm = det_crm[det_crm['ACAD'].isin(all_acads)]
-        mom_avg = dept_det_crm.groupby('ACAD')['MOM_Word_Count'].mean().reset_index().rename(columns={'MOM_Word_Count': 'Avg MOM Word Count'})
-        mom_gt_25 = dept_det_crm[dept_det_crm['MOM_Word_Count'] > 25]
-        mom_gt_25_counts = mom_gt_25.groupby('ACAD').size().reset_index(name='MOMs > 25 Words')
+        
+        # Calculate stats: Total Logs and Average Word Count
+        mom_stats = dept_det_crm.groupby('ACAD').agg(
+            Total_Logs=('MOM_Word_Count', 'count'),
+            Avg_Word_Count=('MOM_Word_Count', 'mean')
+        ).reset_index()
+        mom_stats.rename(columns={'Total_Logs': 'Total MOM Logs', 'Avg_Word_Count': 'Avg MOM Word Count'}, inplace=True)
+        
+        # Counts for >25 and >100 words
+        mom_gt_25_counts = dept_det_crm[dept_det_crm['MOM_Word_Count'] > 25].groupby('ACAD').size().reset_index(name='MOMs > 25 Words')
+        mom_gt_100_counts = dept_det_crm[dept_det_crm['MOM_Word_Count'] > 100].groupby('ACAD').size().reset_index(name='MOMs > 100 Words')
         mom_multiple = mom_gt_25_counts[mom_gt_25_counts['MOMs > 25 Words'] > 1]
         
-        col_mom1, col_mom2 = st.columns(2)
+        col_mom1, col_mom2, col_mom3 = st.columns(3)
         with col_mom1:
-            st.markdown("**Average MOM Word Count per ACAD**")
-            st.dataframe(mom_avg.style.format({'Avg MOM Word Count': '{:.1f}'}), use_container_width=True, hide_index=True)
+            st.markdown("**Average MOM & Total Logs per ACAD**")
+            st.dataframe(mom_stats.style.format({'Avg MOM Word Count': '{:.1f}'}), use_container_width=True, hide_index=True)
         with col_mom2:
-            st.markdown("**ACADs with Multiple (>1) MOMs Exceeding 25 Words**")
+            st.markdown("**ACADs with Multiple (>1) MOMs > 25 Words**")
             if not mom_multiple.empty:
                 st.dataframe(mom_multiple, use_container_width=True, hide_index=True)
             else:
                 st.info("No ACADs have multiple MOMs exceeding 25 words.")
+        with col_mom3:
+            st.markdown("**ACADs with MOMs Exceeding 100 Words**")
+            if not mom_gt_100_counts.empty:
+                st.dataframe(mom_gt_100_counts, use_container_width=True, hide_index=True)
+            else:
+                st.info("No ACADs have MOMs exceeding 100 words.")
 
     st.divider()
 
-    # MISSING FEATURE ADDED: Dept-Wide Zero Utilization with COUNTS
+    # Dept-Wide Zero Utilization with COUNTS
     st.subheader("🚨 Metrics 10 & 11: Department-Wide Zero Utilization (Remedy Required)")
     zero_cares_dept = cares_schools[cares_schools['Utilization (%)'] == 0]
     zero_ms_dept = ms_math[ms_math['Login %'] == 0]
@@ -268,7 +282,7 @@ if page == "🏢 Dept 11-Point Scorecard":
 
     st.divider()
 
-    # Fully Restored Master Summary Table
+    # Master Summary Table
     st.subheader("📊 Consolidated ACAD Master Performance Table")
     master_summary = pd.DataFrame({'ACAD': all_acads})
     
@@ -284,7 +298,6 @@ if page == "🏢 Dept 11-Point Scorecard":
     if not asset.empty: master_summary = master_summary.merge(asset.groupby('ACAD')['Overall Score (%)'].mean().reset_index().rename(columns={'Overall Score (%)': 'ASSET %'}), on='ACAD', how='left')
     
     if not fin_2025.empty:
-        # Count allocated school rows
         base_agg = fin_2025.groupby('ACAD').size().reset_index(name='Total 2025 Schools')
         master_summary = master_summary.merge(base_agg, on='ACAD', how='left')
 
@@ -292,12 +305,11 @@ if page == "🏢 Dept 11-Point Scorecard":
     format_dict = {'Avg Feedback': '{:.2f}', 'Avg NPS': '{:.2f}', 'Avg KDM %': '{:.1f}%', 'Onboarding %': '{:.1f}%', 'Acad Cal %': '{:.1f}%', 'CARES %': '{:.1f}%', 'MS Math %': '{:.1f}%', 'ASSET %': '{:.1f}%'}
     st.dataframe(master_summary.style.format(format_dict), use_container_width=True, hide_index=True)
 
-    # NEW FEATURE: DPS Detailed Logs (Dept View)
+    # DPS Detailed Logs (Dept View)
     st.divider()
     st.header("🏫 Specific DPS Schools Tracking & Detailed Logs")
     st.markdown(f"Fetching logs, feedback, and visits specifically for these School Codes: `{', '.join(DPS_CODES)}`")
     
-    # Map DPS codes to names to fetch from files that don't have codes
     dps_names = fin_2025[fin_2025['School No'].isin(DPS_CODES)]['School Name'].unique().tolist() if not fin_2025.empty else []
     
     tab1, tab2 = st.tabs(["DPS Qualitative Feedback", "DPS Calendar Visit Logs"])
@@ -310,7 +322,7 @@ if page == "🏢 Dept 11-Point Scorecard":
         if not dps_cal.empty: st.dataframe(dps_cal[['ACAD', 'School Name', 'Session Date', 'Compliance Status']], use_container_width=True, hide_index=True)
         else: st.info("No visit logs found for these specific DPS schools.")
 
-    # Fully Restored Raw Data Expander for Dept
+    # Raw Data Expander for Dept
     st.divider()
     with st.expander("📁 View All Raw Operational CSV Data"):
         st.markdown("**CRM Data**"); st.dataframe(crm, use_container_width=True)
@@ -335,7 +347,6 @@ elif page == "💰 Goal 1: Retention & Revenue":
         
         for acad in dept_fin['ACAD'].dropna().unique():
             acad_2025 = dept_fin[dept_fin['ACAD'] == acad]
-            # FIX: Use length for allocations
             allocated = len(acad_2025)
             retained = acad_2025['Is_Retained'].sum()
             retained_schools = acad_2025[acad_2025['Is_Retained']]['School No'].unique()
@@ -388,12 +399,12 @@ elif page == "👤 Individual Dashboard & Goal Export":
     early_requests = cares_early_ind['Total Requests'].sum() if not cares_early_ind.empty else 0
     pct_logged_48h = (len(det_acad_ind[det_acad_ind['Log_Delay_Hours'] <= 48]) / len(det_acad_ind) * 100) if not det_acad_ind.empty and len(det_acad_ind) > 0 else 0
     
-    # NEW DYNAMIC TARGET CALCULATION (Schools x 4)
+    # DYNAMIC TARGET CALCULATION (Schools x 4)
     target_meetings = allocated_25 * 4
     crm_tot = crm_ind['Meetings'].sum() if not crm_ind.empty else 0
     meet_pct = (crm_tot / target_meetings * 100) if target_meetings > 0 else 0
     
-    # NEW IDP GRADING LOGIC (Goal 4) based on Meeting targets
+    # IDP GRADING LOGIC (Goal 4) based on Meeting targets
     idp_grade = "DE" if meet_pct >= 100 else "EE" if meet_pct >= 90 else "ME" if meet_pct >= 80 else "NI"
 
     calc_metrics = {
@@ -438,23 +449,27 @@ elif page == "👤 Individual Dashboard & Goal Export":
 
     st.divider()
     
-    # NEW FEATURE: MOM Word Count Analysis (Individual View)
+    # MOM Word Count Analysis (Individual View)
     st.subheader("📝 MOM (Minutes of Meeting) Analysis")
     if not det_crm.empty and 'MOM_Word_Count' in det_crm.columns:
         ind_det_crm = det_crm[det_crm['ACAD'] == selected_acad]
+        total_logs = len(ind_det_crm)
         avg_word_count = ind_det_crm['MOM_Word_Count'].mean() if not ind_det_crm.empty else 0
         gt_25_count = len(ind_det_crm[ind_det_crm['MOM_Word_Count'] > 25])
+        gt_100_count = len(ind_det_crm[ind_det_crm['MOM_Word_Count'] > 100])
         
-        m1, m2 = st.columns(2)
-        m1.metric("Average MOM Word Count", f"{avg_word_count:.1f} words")
-        m2.metric("MOMs Exceeding 25 Words", f"{gt_25_count} entries")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total MOM Logs Available", f"{total_logs}")
+        m2.metric("Average MOM Word Count", f"{avg_word_count:.1f} words")
+        m3.metric("MOMs > 25 Words", f"{gt_25_count} entries")
+        m4.metric("MOMs > 100 Words", f"{gt_100_count} entries")
         
         with st.expander("View Detailed CRM MOM Logs"):
             st.dataframe(ind_det_crm[['ACAD', 'Customer Account Name', 'Description', 'MOM_Word_Count']], use_container_width=True, hide_index=True)
 
     st.divider()
     
-    # MISSING FEATURE ADDED: Individual Zero Utilization Section with COUNTS
+    # Individual Zero Utilization Section with COUNTS
     st.subheader("🚨 Metrics 10 & 11: Zero Utilization (Immediate Remedy)")
     zero_cares_ind = cares_ind[cares_ind['Utilization (%)'] == 0]
     zero_ms_ind = ms_math_ind[ms_math_ind['Login %'] == 0]
@@ -473,7 +488,7 @@ elif page == "👤 Individual Dashboard & Goal Export":
 
     st.divider()
     
-    # MISSING FEATURE ADDED: Qualitative Feedback and Goal 2/3 SLAs
+    # Qualitative Feedback and Goal 2/3 SLAs
     st.header("📝 Qualitative Session Feedback & Goal Analytics")
     c_col1, c_col2 = st.columns(2)
     with c_col1:
@@ -490,7 +505,7 @@ elif page == "👤 Individual Dashboard & Goal Export":
         st.markdown("**Raw Qualitative Teacher Takeaways**")
         st.dataframe(det_fb_ind[['School Name', 'Products', 'NPS Rating (1-10)', 'Takeaways', 'Suggestions']], use_container_width=True, hide_index=True)
 
-    # NEW FEATURE: DPS Detailed Logs (Individual View)
+    # DPS Detailed Logs (Individual View)
     st.divider()
     st.header("🏫 Specific DPS Schools Tracking & Detailed Logs")
     st.markdown(f"Fetching logs and feedback specifically for these School Codes: `{', '.join(DPS_CODES)}`")
@@ -509,7 +524,6 @@ elif page == "👤 Individual Dashboard & Goal Export":
     st.divider()
     st.header("🔍 Granular Raw Data Tables (Red = Needs Improvement)")
     
-    # Restored ALL Granular Tables
     if not cares_ind.empty:
         st.markdown("**CARES Utilization Raw Data**")
         st.dataframe(cares_ind.style.apply(highlight_cares, axis=1), use_container_width=True, hide_index=True)
