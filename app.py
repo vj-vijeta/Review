@@ -104,7 +104,7 @@ def style_ni(row, condition): return ['background-color: #ffe6e6' if condition e
 def highlight_cares(row): return style_ni(row, row.get('KRA Category', '') == 'NI')
 def highlight_ms(row): return style_ni(row, row.get('Login %', 100) < 80)
 def highlight_asset(row): return style_ni(row, row.get('Overall Score (%)', 100) < 100 and row.get('Included in Calculation', 'No') == 'Yes')
-def highlight_kdm(row): return style_ni(row, row.get('% Coverage', 100) < 25)
+def highlight_kdm(row): return style_ni(row, row.get('% Coverage', 100) < 35)
 def highlight_sla(row): return style_ni(row, row.get('Log_Delay_Hours', 0) > 48)
 
 # ==========================================
@@ -123,7 +123,7 @@ else:
     all_acads = base_acads
 
 page = st.sidebar.radio("Select Dashboard View:", [
-    "🏢 Dept 11-Point Scorecard", 
+    "🏢 Dept 13-Point Scorecard", 
     "💰 Goal 1: Retention & Revenue", 
     "👤 Individual Dashboard & Goal Export"
 ])
@@ -137,6 +137,7 @@ def generate_individual_goal_sheet(acad_name, metrics):
     fb_grade = "DE" if metrics['fb'] >= 9 else "EE" if metrics['fb'] >= 8.5 else "ME" if metrics['fb'] >= 8 else "NI"
     cares_grade = "DE" if (metrics['cares'] >= 100 and metrics['early_reqs'] < 4) else "EE" if (metrics['cares'] >= 100 and metrics['early_reqs'] <= 4) else "ME" if (metrics['cares'] >= 100 and metrics['early_reqs'] <= 6) else "NI"
     ms_grade = "DE" if metrics['ms'] >= 90 else "EE" if metrics['ms'] >= 85 else "ME" if metrics['ms'] >= 80 else "NI"
+    kdm_grade = "EE" if metrics['kdm'] > 50 else "ME" if metrics['kdm'] >= 35 else "NI"
 
     goal_df = pd.DataFrame({
         "Category": [
@@ -170,7 +171,7 @@ def generate_individual_goal_sheet(acad_name, metrics):
             f"{metrics['retention_rate']:.1f}% Retained | ₹{metrics['retained_rev']:,.0f} [{ret_grade}]",
             "N/A", "N/A",
             f"Avg Rating: {metrics['fb']:.2f}/10 | {metrics['sla_48']:.1f}% logged <48h [{fb_grade}]",
-            f"{metrics['kdm']:.1f}% Coverage",
+            f"{metrics['kdm']:.1f}% Coverage [{kdm_grade}]",
             f"{metrics['onboarding']:.1f}% Coverage",
             f"{metrics['acad_cal']:.1f}% Compliant",
             "N/A",
@@ -192,10 +193,10 @@ def convert_acad_to_excel(acad_name, metrics, raw_dfs):
 
 
 # ==========================================
-# 3. PAGE: DEPT 11-POINT SCORECARD
+# 3. PAGE: DEPT 13-POINT SCORECARD
 # ==========================================
-if page == "🏢 Dept 11-Point Scorecard":
-    st.title(f"🏢 Department 11-Point Scorecard ({selected_zone})")
+if page == "🏢 Dept 11-Point Scorecard" or page == "🏢 Dept 13-Point Scorecard":
+    st.title(f"🏢 Department 13-Point Scorecard ({selected_zone})")
     st.markdown("**Metric Definitions:** Explicitly listing totals, averages, and the exact metric logic used.")
     
     total_acads = len(all_acads)
@@ -220,18 +221,30 @@ if page == "🏢 Dept 11-Point Scorecard":
     st.divider()
     s5, s6, s7, s8 = st.columns(4)
     
-    s5.metric("3. Avg KDM Coverage", f"{kdm['% Coverage'].mean() if not kdm.empty else 0:.1f}%", f"Metric: (KDM Done / Alloted) * 100", delta_color="off")
+    dept_kdm_cov = kdm['% Coverage'].mean() if not kdm.empty else 0
+    s5.metric("3. Avg KDM Coverage", f"{dept_kdm_cov:.1f}%", f"Metric: (KDM Done / Alloted) * 100", delta_color="off")
     s6.metric("4. Avg Onboarding", f"{onboarding['% Coverage'].mean() if not onboarding.empty else 0:.1f}%", f"Metric: (Orientations / Signups) * 100", delta_color="off")
     s7.metric("5. Acad Calendar", f"{acad_cal['Percentage Compliant'].mean() if not acad_cal.empty else 0:.1f}%", f"Metric: Logged >15 days prior", delta_color="off")
     s8.metric("2. Avg CARES Util", f"{cares_schools['Utilization (%)'].mean() if not cares_schools.empty else 0:.1f}%", f"Metric: Tests conducted / Packs", delta_color="off")
+
+    st.divider()
+    # THE 2 NEW METRICS FOR THE 13-POINT SCORECARD
+    s9, s10 = st.columns(2)
+    
+    dept_kdm_grade = "EE" if dept_kdm_cov > 50 else "ME" if dept_kdm_cov >= 35 else "NI"
+    s9.metric("12. Avg KDM Grade", dept_kdm_grade, f"EE > 50% | ME 35-50% | NI < 35%", delta_color="off")
+    
+    dept_avg_mom = 0
+    if not det_crm.empty and 'MOM_Word_Count' in det_crm.columns:
+        dept_det_crm = det_crm[det_crm['ACAD'].isin(all_acads)]
+        dept_avg_mom = dept_det_crm['MOM_Word_Count'].mean() if not dept_det_crm.empty else 0
+    s10.metric("13. Avg CRM MOM Word Count", f"{dept_avg_mom:.1f} words", "Averaged across all Detailed CRM Logs", delta_color="off")
 
     st.divider()
     
     # MOM Word Count Analysis (Department View)
     st.subheader("📝 MOM (Minutes of Meeting) Word Count Analysis")
     if not det_crm.empty and 'MOM_Word_Count' in det_crm.columns:
-        dept_det_crm = det_crm[det_crm['ACAD'].isin(all_acads)]
-        
         # Calculate stats: Total Logs and Average Word Count
         mom_stats = dept_det_crm.groupby('ACAD').agg(
             Total_Logs=('MOM_Word_Count', 'count'),
@@ -388,6 +401,10 @@ elif page == "👤 Individual Dashboard & Goal Export":
     det_fb_ind = det_feedback[det_feedback['ACAD'] == selected_acad] if not det_feedback.empty else pd.DataFrame()
     cares_early_ind = cares_early[cares_early['ACAD'] == selected_acad] if not cares_early.empty else pd.DataFrame()
     
+    ind_det_crm = pd.DataFrame()
+    if not det_crm.empty and 'MOM_Word_Count' in det_crm.columns:
+        ind_det_crm = det_crm[det_crm['ACAD'] == selected_acad]
+    
     # Calculate Core Metrics for Goal Sheet
     allocated_25 = len(fin_2025_ind) if not fin_2025_ind.empty else 0
     retained_27 = fin_2025_ind['Is_Retained'].sum() if not fin_2025_ind.empty else 0
@@ -427,13 +444,13 @@ elif page == "👤 Individual Dashboard & Goal Export":
 
     # Include ALL raw data for the individual export
     raw_export_dfs = {'Feedback': fb_ind, 'Qual_Feedback': det_fb_ind, 'CRM': crm_ind, 'KDM': kdm_ind, 'CARES': cares_ind, 'ASSET': asset_ind, 'MS_Math': ms_math_ind, 'Onboarding': onboard_ind, 'Acad_Cal': acad_cal_ind, '2025_Fin': fin_2025_ind}
-    if not det_crm.empty: raw_export_dfs['Detailed_CRM_MOM'] = det_crm[det_crm['ACAD'] == selected_acad]
+    if not ind_det_crm.empty: raw_export_dfs['Detailed_CRM_MOM'] = ind_det_crm
     
     st.download_button(f"📥 Download {selected_acad} KPA Goal Sheet & Data", convert_acad_to_excel(selected_acad, calc_metrics, raw_export_dfs), f"KPA_2026_{selected_acad}.xlsx", type="primary")
 
     st.divider()
 
-    st.header("📋 11-Point Executive Scorecard")
+    st.header("📋 13-Point Executive Scorecard")
     s1, s2, s3, s4 = st.columns(4)
     s1.metric("1. Avg Feedback", f"{calc_metrics['fb']:.2f} / 10", f"Total Responses: {fb_ind['Responses'].values[0] if not fb_ind.empty else 0}", delta_color="off")
     s2.metric("9. Avg Session (NPS)", f"{crm_ind['Average Rating'].mean() if not crm_ind.empty else 0:.2f} / 5", "From CRM System", delta_color="off")
@@ -448,19 +465,26 @@ elif page == "👤 Individual Dashboard & Goal Export":
     s8.metric("2. CARES Util %", f"{calc_metrics['cares']:.1f}%", delta_color="off")
 
     st.divider()
+    # THE 2 NEW METRICS FOR THE 13-POINT SCORECARD (Individual View)
+    s9, s10 = st.columns(2)
+    ind_kdm_grade = "EE" if calc_metrics['kdm'] > 50 else "ME" if calc_metrics['kdm'] >= 35 else "NI"
+    s9.metric("12. KDM Grade", ind_kdm_grade, f"EE > 50% | ME 35-50% | NI < 35%", delta_color="off")
+    
+    ind_avg_mom = ind_det_crm['MOM_Word_Count'].mean() if not ind_det_crm.empty else 0
+    s10.metric("13. Avg CRM MOM Word Count", f"{ind_avg_mom:.1f} words", "Averaged across Detailed CRM Logs", delta_color="off")
+
+    st.divider()
     
     # MOM Word Count Analysis (Individual View)
     st.subheader("📝 MOM (Minutes of Meeting) Analysis")
-    if not det_crm.empty and 'MOM_Word_Count' in det_crm.columns:
-        ind_det_crm = det_crm[det_crm['ACAD'] == selected_acad]
+    if not ind_det_crm.empty:
         total_logs = len(ind_det_crm)
-        avg_word_count = ind_det_crm['MOM_Word_Count'].mean() if not ind_det_crm.empty else 0
         gt_25_count = len(ind_det_crm[ind_det_crm['MOM_Word_Count'] > 25])
         gt_100_count = len(ind_det_crm[ind_det_crm['MOM_Word_Count'] > 100])
         
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total MOM Logs Available", f"{total_logs}")
-        m2.metric("Average MOM Word Count", f"{avg_word_count:.1f} words")
+        m2.metric("Average MOM Word Count", f"{ind_avg_mom:.1f} words")
         m3.metric("MOMs > 25 Words", f"{gt_25_count} entries")
         m4.metric("MOMs > 100 Words", f"{gt_100_count} entries")
         
