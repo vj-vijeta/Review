@@ -33,9 +33,8 @@ def load_data():
         ms_math = pd.read_csv('Mindspark math.csv')
         ms_eng = pd.read_csv('mindspark english.csv')
         
-        # Detailed Feedback, Early Delivery, and Org Hierarchy
+        # Detailed Feedback and Org Hierarchy
         det_feedback = pd.read_csv('detailed feedback.csv') if os.path.exists('detailed feedback.csv') else pd.DataFrame()
-        cares_early = pd.read_csv('cares earlydelivery.csv') if os.path.exists('cares earlydelivery.csv') else pd.DataFrame()
         org_data = pd.read_csv('Supporting data(2)-13th March 2026 (8).xlsx - Org.csv') if os.path.exists('Supporting data(2)-13th March 2026 (8).xlsx - Org.csv') else pd.DataFrame()
         
         # Detailed CRM / MOM Data
@@ -98,9 +97,9 @@ def load_data():
     if not det_crm.empty and 'Description' in det_crm.columns:
         det_crm['MOM_Word_Count'] = det_crm['Description'].astype(str).apply(lambda x: len(x.split()) if str(x).lower() != 'nan' else 0)
     
-    return acad_cal, det_acad_cal, kdm, det_kdm, onboarding, det_onboard, crm, feedback, cares_schools, asset, ms_math, ms_eng, fin_2025, fin_2027, drop_risk, det_feedback, cares_early, org_data, det_crm
+    return acad_cal, det_acad_cal, kdm, det_kdm, onboarding, det_onboard, crm, feedback, cares_schools, asset, ms_math, ms_eng, fin_2025, fin_2027, drop_risk, det_feedback, org_data, det_crm
 
-acad_cal, det_acad_cal, kdm, det_kdm, onboarding, det_onboard, crm, feedback, cares_schools, asset, ms_math, ms_eng, fin_2025, fin_2027, drop_risk, det_feedback, cares_early, org_data, det_crm = load_data()
+acad_cal, det_acad_cal, kdm, det_kdm, onboarding, det_onboard, crm, feedback, cares_schools, asset, ms_math, ms_eng, fin_2025, fin_2027, drop_risk, det_feedback, org_data, det_crm = load_data()
 
 # Ensure ALL ACADs are tracked (Restores full 645 school count)
 base_acads = pd.concat([acad_cal['ACAD'], crm['ACAD'], feedback['ACAD'], fin_2025['ACAD']]).dropna().unique()
@@ -118,9 +117,9 @@ else:
 # Highlighting Logic
 def style_ni(row, condition): return ['background-color: #ffe6e6' if condition else ''] * len(row)
 def highlight_cares(row): return style_ni(row, row.get('KRA Category', '') == 'NI' or "NI" in str(row.get('KRA Grade', '')))
-def highlight_ms(row): return style_ni(row, row.get('Login %', 100) < 80)
-def highlight_asset(row): return style_ni(row, row.get('Overall Score (%)', 100) < 100 and row.get('Included in Calculation', 'No') == 'Yes')
-def highlight_kdm(row): return style_ni(row, row.get('% Coverage', 100) < 35)
+def highlight_ms(row): return style_ni(row, row.get('Login %', 100) < 70) # Set to NI boundary
+def highlight_asset(row): return style_ni(row, row.get('Overall Score (%)', 100) < 80) # Set to NI boundary
+def highlight_kdm(row): return style_ni(row, row.get('% Coverage', 100) < 20) # Set to NI boundary
 def highlight_sla(row): return style_ni(row, row.get('Log_Delay_Hours', 0) > 48)
 
 # ==========================================
@@ -152,9 +151,11 @@ def generate_individual_goal_sheet(acad_name, metrics):
     # Grading Logic Additions
     ret_grade = "DE" if metrics['retention_rate'] >= 98 else "EE" if metrics['retention_rate'] >= 95 else "ME" if metrics['retention_rate'] >= 90 else "NI"
     fb_grade = "DE" if metrics['fb'] >= 9 else "EE" if metrics['fb'] >= 8.5 else "ME" if metrics['fb'] >= 8 else "NI"
-    cares_grade = "DE" if (metrics['cares'] >= 100 and metrics['early_reqs'] < 4) else "EE" if (metrics['cares'] >= 100 and metrics['early_reqs'] <= 4) else "ME" if (metrics['cares'] >= 100 and metrics['early_reqs'] <= 6) else "NI"
-    ms_grade = "DE" if metrics['ms'] >= 90 else "EE" if metrics['ms'] >= 85 else "ME" if metrics['ms'] >= 80 else "NI"
-    kdm_grade = "EE" if metrics['kdm'] > 50 else "ME" if metrics['kdm'] >= 35 else "NI"
+    cares_grade = "DE" if metrics.get('cares_gap', 0) > 10 else "EE" if metrics.get('cares_gap', 0) >= 1 else "ME" if metrics.get('cares_gap', 0) >= -1 else "NI"
+    ms_grade = "DE" if metrics['ms'] >= 90 else "EE" if metrics['ms'] >= 80 else "ME" if metrics['ms'] >= 70 else "NI"
+    kdm_grade = "DE" if metrics['kdm'] >= 60 else "EE" if metrics['kdm'] >= 40 else "ME" if metrics['kdm'] >= 20 else "NI"
+    acad_grade = "DE" if metrics['acad_cal'] >= 70 else "EE" if metrics['acad_cal'] >= 60 else "ME" if metrics['acad_cal'] >= 50 else "NI"
+    asset_grade = "DE" if metrics.get('asset_comp', 0) >= 90 else "EE" if metrics.get('asset_comp', 0) >= 85 else "ME" if metrics.get('asset_comp', 0) >= 80 else "NI"
 
     goal_df = pd.DataFrame({
         "Category": [
@@ -179,7 +180,7 @@ def generate_individual_goal_sheet(acad_name, metrics):
         "ME (Meets Expectations) Target": [
             "90% renew and 115% order value", "80% retention completed", "90% within 45 days",
             "100% completion in 48h, rating 8", "1 per quarter, 1 testimonial", "Within 30 days", "70% recorded before 15 days",
-            "20% participation", "MS>=80%, ASSET 80%, CARES 100%",
+            "20% participation", "MS>=70%, ASSET 80%, CARES 100%",
             "Achieve success set as ME in IDP", "Readiness for Action Research"
         ],
         "Weightage": ["20%", "10%", "5%", "10%", "10%", "5%", "5%", "5%", "10%", "15%", "5%"],
@@ -187,12 +188,12 @@ def generate_individual_goal_sheet(acad_name, metrics):
         "ACTUAL ACHIEVED (Data)": [
             f"{metrics['retention_rate']:.1f}% Retained | ₹{metrics['retained_rev']:,.0f} [{ret_grade}]",
             "N/A", "N/A",
-            f"Avg Rating: {metrics['fb']:.2f}/10 | {metrics['sla_48']:.1f}% <48h | Avg MOM: {metrics.get('avg_mom', 0):.1f} words [{fb_grade}]",
+            f"Avg Rating: {metrics['fb']:.2f}/10 | {metrics['sla_48']:.1f}% logged <48h | Avg MOM: {metrics.get('avg_mom', 0):.1f} words [{fb_grade}]",
             f"{metrics['kdm']:.1f}% Coverage [{kdm_grade}]",
             f"{metrics['onboarding']:.1f}% Coverage",
-            f"{metrics['acad_cal']:.1f}% Compliant",
+            f"{metrics['acad_cal']:.1f}% Compliant [{acad_grade}]",
             "N/A",
-            f"CARES: {metrics['cares']:.1f}% [{cares_grade}] | MS: {metrics['ms']:.1f}% [{ms_grade}] | ASSET: {metrics['asset']:.1f}%",
+            f"CARES: {metrics['cares']:.1f}% [{cares_grade}] | MS: {metrics['ms']:.1f}% [{ms_grade}] | ASSET: {metrics['asset']:.1f}% [{asset_grade}]",
             f"Meeting Target Achieved: {metrics['meet_pct']:.1f}% [{metrics['idp_grade']}]", "Pending HR Eval"
         ]
     })
@@ -241,15 +242,17 @@ if page == "🏢 Dept 13-Point Scorecard":
     dept_kdm_cov = kdm['% Coverage'].mean() if not kdm.empty else 0
     s5.metric("3. Avg KDM Coverage", f"{dept_kdm_cov:.1f}%", f"Metric: (KDM Done / Alloted) * 100", delta_color="off")
     s6.metric("4. Avg Onboarding", f"{onboarding['% Coverage'].mean() if not onboarding.empty else 0:.1f}%", f"Metric: (Orientations / Signups) * 100", delta_color="off")
-    s7.metric("5. Acad Calendar", f"{acad_cal['Percentage Compliant'].mean() if not acad_cal.empty else 0:.1f}%", f"Metric: Logged >15 days prior", delta_color="off")
+    
+    dept_acad_cal_cov = acad_cal['Percentage Compliant'].mean() if not acad_cal.empty else 0
+    s7.metric("5. Acad Calendar", f"{dept_acad_cal_cov:.1f}%", f"Metric: Logged >15 days prior", delta_color="off")
     s8.metric("2. Avg CARES Util", f"{cares_schools['Utilization (%)'].mean() if not cares_schools.empty else 0:.1f}%", f"Metric: Tests conducted / Packs", delta_color="off")
 
     st.divider()
     # THE 2 NEW METRICS FOR THE 13-POINT SCORECARD
     s9, s10 = st.columns(2)
     
-    dept_kdm_grade = "EE" if dept_kdm_cov > 50 else "ME" if dept_kdm_cov >= 35 else "NI"
-    s9.metric("12. Avg KDM Grade", dept_kdm_grade, f"EE > 50% | ME 35-50% | NI < 35%", delta_color="off")
+    dept_kdm_grade = "DE" if dept_kdm_cov >= 60 else "EE" if dept_kdm_cov >= 40 else "ME" if dept_kdm_cov >= 20 else "NI"
+    s9.metric("12. Avg KDM Grade", dept_kdm_grade, f"DE ≥60% | EE 40-60% | ME 20-40% | NI <20%", delta_color="off")
     
     dept_avg_mom = 0
     if not det_crm.empty and 'MOM_Word_Count' in det_crm.columns:
@@ -262,14 +265,12 @@ if page == "🏢 Dept 13-Point Scorecard":
     # MOM Word Count Analysis (Department View)
     st.subheader("📝 MOM (Minutes of Meeting) Word Count Analysis")
     if not det_crm.empty and 'MOM_Word_Count' in det_crm.columns:
-        # Calculate stats: Total Logs and Average Word Count
         mom_stats = dept_det_crm.groupby('ACAD').agg(
             Total_Logs=('MOM_Word_Count', 'count'),
             Avg_Word_Count=('MOM_Word_Count', 'mean')
         ).reset_index()
         mom_stats.rename(columns={'Total_Logs': 'Total MOM Logs', 'Avg_Word_Count': 'Avg MOM Word Count'}, inplace=True)
         
-        # Counts for >25 and >100 words
         mom_gt_25_counts = dept_det_crm[dept_det_crm['MOM_Word_Count'] > 25].groupby('ACAD').size().reset_index(name='MOMs > 25 Words')
         mom_gt_100_counts = dept_det_crm[dept_det_crm['MOM_Word_Count'] > 100].groupby('ACAD').size().reset_index(name='MOMs > 100 Words')
         mom_multiple = mom_gt_25_counts[mom_gt_25_counts['MOMs > 25 Words'] > 1]
@@ -324,7 +325,11 @@ if page == "🏢 Dept 13-Point Scorecard":
     if not onboarding.empty: master_summary = master_summary.merge(onboarding.groupby('ACAD')['% Coverage'].mean().reset_index().rename(columns={'% Coverage': 'Onboarding %'}), on='ACAD', how='left')
     if not acad_cal.empty: master_summary = master_summary.merge(acad_cal.groupby('ACAD')['Percentage Compliant'].mean().reset_index().rename(columns={'Percentage Compliant': 'Acad Cal %'}), on='ACAD', how='left')
     if not cares_schools.empty: master_summary = master_summary.merge(cares_schools.groupby('ACAD')['Utilization (%)'].mean().reset_index().rename(columns={'Utilization (%)': 'CARES %'}), on='ACAD', how='left')
+    
+    # Merge MS Math and MS Eng logic
     if not ms_math.empty: master_summary = master_summary.merge(ms_math.groupby('ACAD')['Login %'].mean().reset_index().rename(columns={'Login %': 'MS Math %'}), on='ACAD', how='left')
+    if not ms_eng.empty: master_summary = master_summary.merge(ms_eng.groupby('ACAD')['Login %'].mean().reset_index().rename(columns={'Login %': 'MS Eng %'}), on='ACAD', how='left')
+    
     if not asset.empty: master_summary = master_summary.merge(asset.groupby('ACAD')['Overall Score (%)'].mean().reset_index().rename(columns={'Overall Score (%)': 'ASSET %'}), on='ACAD', how='left')
     
     if not fin_2025.empty:
@@ -332,7 +337,7 @@ if page == "🏢 Dept 13-Point Scorecard":
         master_summary = master_summary.merge(base_agg, on='ACAD', how='left')
 
     master_summary.fillna(0, inplace=True)
-    format_dict = {'Avg Feedback': '{:.2f}', 'Avg NPS': '{:.2f}', 'Avg KDM %': '{:.1f}%', 'Onboarding %': '{:.1f}%', 'Acad Cal %': '{:.1f}%', 'CARES %': '{:.1f}%', 'MS Math %': '{:.1f}%', 'ASSET %': '{:.1f}%'}
+    format_dict = {'Avg Feedback': '{:.2f}', 'Avg NPS': '{:.2f}', 'Avg KDM %': '{:.1f}%', 'Onboarding %': '{:.1f}%', 'Acad Cal %': '{:.1f}%', 'CARES %': '{:.1f}%', 'MS Math %': '{:.1f}%', 'MS Eng %': '{:.1f}%', 'ASSET %': '{:.1f}%'}
     st.dataframe(master_summary.style.format(format_dict), use_container_width=True, hide_index=True)
 
     # DPS Detailed Logs (Dept View)
@@ -358,6 +363,8 @@ if page == "🏢 Dept 13-Point Scorecard":
         st.markdown("**CRM Data**"); st.dataframe(crm, use_container_width=True)
         st.markdown("**Feedback Data**"); st.dataframe(feedback, use_container_width=True)
         st.markdown("**ASSET Data**"); st.dataframe(asset, use_container_width=True)
+        st.markdown("**MS Math Data**"); st.dataframe(ms_math, use_container_width=True)
+        st.markdown("**MS English Data**"); st.dataframe(ms_eng, use_container_width=True)
         st.markdown("**Detailed Academic Calendar**"); st.dataframe(det_acad_cal, use_container_width=True)
         if not org_data.empty: st.markdown("**Organizational Hierarchy**"); st.dataframe(org_data, use_container_width=True)
 
@@ -458,9 +465,14 @@ elif page == "📊 Product Utilisation & Goal Logic":
             * **EE:** 24h - 36h
             * **ME:** 36h - 48h
             * **NI:** > 48h
-        * **KDM Coverage:** * **EE:** > 50%
-            * **ME:** 35% - 50%
-            * **NI:** < 35%
+        * **KDM Coverage:** * **DE:** ≥ 60%
+            * **EE:** 40% - 60%
+            * **ME:** 20% - 40%
+            * **NI:** < 20%
+        * **Academic Calendar:** * **DE:** ≥ 70%
+            * **EE:** 60% - 70%
+            * **ME:** 50% - 60%
+            * **NI:** < 50%
         """)
 
         st.subheader("Goal 3: Product Utilisation (Weight: 15%)")
@@ -472,8 +484,11 @@ elif page == "📊 Product Utilisation & Goal Logic":
             * **EE (4):** Gap 1% to 10%
             * **ME (3):** Gap within ±1%
             * **NI (2):** Gap < -1%
-        * **CARES Early Delivery Penalty:** Triggered if requests > 4 per cycle.
-        * **Mindspark Utilization:** Tracked via **Zero Usage %** (students with 0 usage / activated students) across quarterly date ranges. Target is generally >= 80% Logins.
+        * **Mindspark Utilization:** Uses Login Average across Math and English.
+            * **DE:** > 90%
+            * **EE:** 80% - 90%
+            * **ME:** 70% - 80%
+            * **NI:** < 70%
         * **ASSET Utilization:** Based on Academic Calendar and CRM Event Stage ('Post ASSET Session').
             * **DE:** ≥ 90% Compliance
             * **EE:** 85% - 90% Compliance
@@ -508,13 +523,13 @@ elif page == "👤 Individual Dashboard & Goal Export":
     cares_ind = cares_schools[cares_schools['ACAD'] == selected_acad]
     asset_ind = asset[asset['ACAD'] == selected_acad]
     ms_math_ind = ms_math[ms_math['ACAD'] == selected_acad]
+    ms_eng_ind = ms_eng[ms_eng['ACAD'] == selected_acad]
     fin_2025_ind = fin_2025[fin_2025['ACAD'] == selected_acad] if 'ACAD' in fin_2025.columns else pd.DataFrame()
     det_acad_ind = det_acad_cal[det_acad_cal['ACAD'] == selected_acad]
     det_kdm_ind = det_kdm[det_kdm['School Name'].isin(kdm_ind['School Name'])] if 'School Name' in kdm_ind.columns else pd.DataFrame()
     det_onb_ind = det_onboard[det_onboard['ACAD'] == selected_acad]
     
     det_fb_ind = det_feedback[det_feedback['ACAD'] == selected_acad] if not det_feedback.empty else pd.DataFrame()
-    cares_early_ind = cares_early[cares_early['ACAD'] == selected_acad] if not cares_early.empty else pd.DataFrame()
     
     ind_det_crm = pd.DataFrame()
     if not det_crm.empty and 'MOM_Word_Count' in det_crm.columns:
@@ -528,7 +543,6 @@ elif page == "👤 Individual Dashboard & Goal Export":
         ret_schools = fin_2025_ind[fin_2025_ind['Is_Retained']]['School No'].unique()
         retained_rev_amt = fin_2027[fin_2027['School No'].isin(ret_schools)]['Total Order Value (Exclusive GST)'].sum()
         
-    early_requests = cares_early_ind['Total Requests'].sum() if not cares_early_ind.empty else 0
     pct_logged_48h = (len(det_acad_ind[det_acad_ind['Log_Delay_Hours'] <= 48]) / len(det_acad_ind) * 100) if not det_acad_ind.empty and len(det_acad_ind) > 0 else 0
     
     # DYNAMIC TARGET CALCULATION (Schools x 4)
@@ -544,6 +558,12 @@ elif page == "👤 Individual Dashboard & Goal Export":
 
     ind_avg_mom = ind_det_crm['MOM_Word_Count'].mean() if not ind_det_crm.empty else 0
 
+    # Combine Mindspark Login Averages
+    ms_math_mean = ms_math_ind['Login %'].mean() if not ms_math_ind.empty else np.nan
+    ms_eng_mean = ms_eng_ind['Login %'].mean() if not ms_eng_ind.empty else np.nan
+    ms_avg = np.nanmean([ms_math_mean, ms_eng_mean])
+    ms_avg = 0 if np.isnan(ms_avg) else ms_avg
+
     calc_metrics = {
         'fb': fb_ind['Overall Rating'].values[0] if not fb_ind.empty else 0,
         'crm_total': crm_tot,
@@ -551,12 +571,12 @@ elif page == "👤 Individual Dashboard & Goal Export":
         'onboarding': onboard_ind['% Coverage'].mean() if not onboard_ind.empty else 0,
         'acad_cal': acad_cal_ind['Percentage Compliant'].mean() if not acad_cal_ind.empty else 0,
         'cares': cares_ind['Utilization (%)'].mean() if not cares_ind.empty else 0,
-        'ms': ms_math_ind['Login %'].mean() if not ms_math_ind.empty else 0,
+        'cares_gap': cares_ind['Gap'].mean() if not cares_ind.empty and 'Gap' in cares_ind.columns else 0,
+        'ms': ms_avg,
         'asset': asset_ind['Overall Score (%)'].mean() if not asset_ind.empty else 0,
         'asset_comp': asset_comp,
         'retention_rate': (retained_27 / allocated_25 * 100) if allocated_25 > 0 else 0,
         'retained_rev': retained_rev_amt,
-        'early_reqs': early_requests,
         'sla_48': pct_logged_48h,
         'target_meetings': target_meetings,
         'meet_pct': meet_pct,
@@ -565,7 +585,7 @@ elif page == "👤 Individual Dashboard & Goal Export":
     }
 
     # Include ALL raw data for the individual export
-    raw_export_dfs = {'Feedback': fb_ind, 'Qual_Feedback': det_fb_ind, 'CRM': crm_ind, 'KDM': kdm_ind, 'CARES': cares_ind, 'ASSET': asset_ind, 'MS_Math': ms_math_ind, 'Onboarding': onboard_ind, 'Acad_Cal': acad_cal_ind, '2025_Fin': fin_2025_ind}
+    raw_export_dfs = {'Feedback': fb_ind, 'Qual_Feedback': det_fb_ind, 'CRM': crm_ind, 'KDM': kdm_ind, 'CARES': cares_ind, 'ASSET': asset_ind, 'MS_Math': ms_math_ind, 'MS_Eng': ms_eng_ind, 'Onboarding': onboard_ind, 'Acad_Cal': acad_cal_ind, '2025_Fin': fin_2025_ind}
     if not ind_det_crm.empty: raw_export_dfs['Detailed_CRM_MOM'] = ind_det_crm
     
     st.download_button(f"📥 Download {selected_acad} KPA Goal Sheet & Data", convert_acad_to_excel(selected_acad, calc_metrics, raw_export_dfs), f"KPA_2026_{selected_acad}.xlsx", type="primary")
@@ -583,14 +603,16 @@ elif page == "👤 Individual Dashboard & Goal Export":
     s5, s6, s7, s8 = st.columns(4)
     s5.metric("3. KDM Coverage %", f"{calc_metrics['kdm']:.1f}%", delta_color="off")
     s6.metric("4. Onboarding %", f"{calc_metrics['onboarding']:.1f}%", delta_color="off")
-    s7.metric("5. Acad Calendar %", f"{calc_metrics['acad_cal']:.1f}%", delta_color="off")
+    
+    ind_acad_grade = "DE" if calc_metrics['acad_cal'] >= 70 else "EE" if calc_metrics['acad_cal'] >= 60 else "ME" if calc_metrics['acad_cal'] >= 50 else "NI"
+    s7.metric("5. Acad Calendar %", f"{calc_metrics['acad_cal']:.1f}%", f"Grade: [{ind_acad_grade}]", delta_color="off")
     s8.metric("2. CARES Util %", f"{calc_metrics['cares']:.1f}%", delta_color="off")
 
     st.divider()
     # THE 2 NEW METRICS FOR THE 13-POINT SCORECARD (Individual View)
     s9, s10 = st.columns(2)
-    ind_kdm_grade = "EE" if calc_metrics['kdm'] > 50 else "ME" if calc_metrics['kdm'] >= 35 else "NI"
-    s9.metric("12. KDM Grade", ind_kdm_grade, f"EE > 50% | ME 35-50% | NI < 35%", delta_color="off")
+    ind_kdm_grade = "DE" if calc_metrics['kdm'] >= 60 else "EE" if calc_metrics['kdm'] >= 40 else "ME" if calc_metrics['kdm'] >= 20 else "NI"
+    s9.metric("12. KDM Grade", ind_kdm_grade, f"DE ≥60% | EE 40-60% | ME 20-40% | NI <20%", delta_color="off")
     
     s10.metric("13. Avg CRM MOM Word Count", f"{ind_avg_mom:.1f} words", "Averaged across Detailed CRM Logs", delta_color="off")
 
@@ -617,18 +639,22 @@ elif page == "👤 Individual Dashboard & Goal Export":
     # Individual Zero Utilization Section with COUNTS
     st.subheader("🚨 Metrics 10 & 11: Zero Utilization (Immediate Remedy)")
     zero_cares_ind = cares_ind[cares_ind['Utilization (%)'] == 0]
-    zero_ms_ind = ms_math_ind[ms_math_ind['Login %'] == 0]
+    zero_ms_math_ind = ms_math_ind[ms_math_ind['Login %'] == 0]
+    zero_ms_eng_ind = ms_eng_ind[ms_eng_ind['Login %'] == 0]
     zero_asset_ind = asset_ind[asset_ind['Overall Score (%)'] == 0]
     
-    r1, r2, r3 = st.columns(3)
+    r1, r2, r3, r4 = st.columns(4)
     with r1:
-        st.error(f"**10. CARES (0% Util)**: {len(zero_cares_ind)} Schools")
+        st.error(f"**CARES (0% Util)**: {len(zero_cares_ind)} Schools")
         st.dataframe(zero_cares_ind[['School Name', 'Utilization (%)']], hide_index=True)
     with r2:
-        st.error(f"**10. MS Math (0% Logins)**: {len(zero_ms_ind)} Schools")
-        st.dataframe(zero_ms_ind[['schoolName', 'Login %']], hide_index=True)
+        st.error(f"**MS Math (0% Logins)**: {len(zero_ms_math_ind)} Schools")
+        st.dataframe(zero_ms_math_ind[['schoolName', 'Login %']], hide_index=True)
     with r3:
-        st.error(f"**11. ASSET (0% Scheduled)**: {len(zero_asset_ind)} Schools")
+        st.error(f"**MS Eng (0% Logins)**: {len(zero_ms_eng_ind)} Schools")
+        st.dataframe(zero_ms_eng_ind[['schoolName', 'Login %']], hide_index=True)
+    with r4:
+        st.error(f"**ASSET (0% Scheduled)**: {len(zero_asset_ind)} Schools")
         st.dataframe(zero_asset_ind[['School Name', 'Overall Score (%)']], hide_index=True)
 
     st.divider()
@@ -642,9 +668,9 @@ elif page == "👤 Individual Dashboard & Goal Export":
         if not det_acad_ind.empty: st.dataframe(det_acad_ind[['School Name', 'Session Date', 'Date Updated', 'Log_Delay_Hours']].style.apply(highlight_sla, axis=1), hide_index=True)
         
     with c_col2:
-        st.markdown("**Goal 3: CARES Early Delivery Penalty**")
-        st.metric("Total Early Delivery Requests", early_requests, "Penalty triggered if > 4")
-        if early_requests > 4: st.error("Penalty Triggered: Early delivery requests exceed baseline target.")
+        st.markdown("**Goal 3: CARES Utilization Gap**")
+        st.metric("Average CARES Gap", f"{calc_metrics['cares_gap']:.1f}%")
+        if not cares_ind.empty: st.dataframe(cares_ind[['School Name', 'Expected Utilization', 'Utilization (%)', 'Gap', 'KRA Grade']].style.apply(highlight_cares, axis=1), hide_index=True)
     
     if not det_fb_ind.empty:
         st.markdown("**Raw Qualitative Teacher Takeaways**")
@@ -678,6 +704,9 @@ elif page == "👤 Individual Dashboard & Goal Export":
     if not ms_math_ind.empty:
         st.markdown("**Mindspark Math Raw Data**")
         st.dataframe(ms_math_ind.style.apply(highlight_ms, axis=1), use_container_width=True, hide_index=True)
+    if not ms_eng_ind.empty:
+        st.markdown("**Mindspark English Raw Data**")
+        st.dataframe(ms_eng_ind.style.apply(highlight_ms, axis=1), use_container_width=True, hide_index=True)
     if not kdm_ind.empty:
         st.markdown("**KDM Coverage Raw Data**")
         st.dataframe(kdm_ind.style.apply(highlight_kdm, axis=1), use_container_width=True, hide_index=True)
